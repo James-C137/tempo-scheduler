@@ -68,8 +68,8 @@ async function getCalendarEvents(auth: OAuth2Client) {
   try {
     const response = await calendar.events.list({
       calendarId: 'primary',
-      timeMin: new Date().toISOString(),
-      timeMax: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(), // Next 7 days
+      timeMin: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),  // Last 30 days
+      timeMax: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),  // Next 7 days
       singleEvents: true,
       orderBy: 'startTime',
     });
@@ -101,7 +101,13 @@ async function getSchedulingSuggestions(
   }));
 
   const context = `
-You are a scheduling assistant helping to optimize my calendar based on my preferences and existing commitments.
+You are a scheduling assistant responsible for maintaining my calendar according to my strategy. Your primary tasks are:
+1. Generate calendar events for ALL recurring activities
+2. Handle any adhoc requests
+3. Optimize existing calendar events
+
+The current time:
+${new Date().toISOString()}
 
 My scheduling strategy:
 ${yaml.stringify(strategy)}
@@ -109,41 +115,58 @@ ${yaml.stringify(strategy)}
 My current calendar events for the next 7 days:
 ${JSON.stringify(formattedEvents, null, 2)}
 
-Please analyze my calendar and strategy to provide recommendations. Format your response as a JSON array of recommendations, where each recommendation has the following structure:
+IMPORTANT INSTRUCTIONS:
+1. For EACH recurring event in the strategy:
+   - Create a separate recommendation
+   - Schedule it for the next appropriate time slot
+   - Follow user rules about timing (e.g., work hours, day start/end times)
+   - Consider frequency specified (daily, weekly, etc.)
+   - Account for existing calendar events to avoid conflicts
 
+2. For EACH adhoc request:
+   - Create a recommendation that fits within the specified timeframe
+   - Follow prioritization rules from the strategy
+
+3. Generate recommendations for AT LEAST:
+   - All daily recurring events for the next 7 days
+   - All weekly recurring events for next occurrence
+   - All adhoc requests within their specified timeframes
+
+Format your response as a JSON array of recommendations with this structure:
 {
   "recommendations": [
     {
-      "type": "conflict" | "optimization" | "pattern" | "protection",
-      "priority": 1-5 (1 being highest priority),
+      "priority": "HIGH" | "MEDIUM" | "LOW",
       "recommendation": "Human readable description of what should be done",
-      "reason": "Clear explanation of why this change is recommended",
-      "action": {
-        "type": "create_block" | "move_event" | "add_buffer" | "protect_time" | "split_event" | "delete_event",
+      "reason": "Clear explanation of why this scheduling choice was made",
+      "calendarAction": {
+        "type": "CREATE" | "MOVE" | "DELETE",
         "details": {
-          // Specific details needed to implement the action, such as:
-          "start": "ISO datetime",
-          "end": "ISO datetime",
           "title": "string",
           "description": "string",
-          // Additional parameters based on action type
+          "startTime": "ISO datetime",
+          "endTime": "ISO datetime"
         }
       }
     }
   ]
 }
 
-Focus on practical, actionable suggestions that can be implemented programmatically. Ensure all datetime values are in ISO format and aligned with the strategy's time blocks and energy patterns. Consider both immediate fixes and strategic optimizations.`;
+CRITICAL: Ensure you create recommendations for EVERY recurring event and adhoc request, even if you have to make reasonable assumptions about timing and duration. If a recurring event is specified as daily, create 7 instances for the next 7 days.`;
+  console.log(context);
 
   try {
     const response = await anthropic.messages.create({
       model: "claude-3-sonnet-20240229",
-      max_tokens: 1024,
+      max_tokens: 4096,
       messages: [{
         role: "user",
         content: context
+      }, {
+        role: 'assistant',
+        content: '{'
       }],
-      temperature: 0.2, // Lower temperature for more consistent structured output
+      temperature: 0.8, // Lower temperature for more consistent structured output
     });
 
     if (response.content[0].type !== 'text') {
@@ -152,7 +175,7 @@ Focus on practical, actionable suggestions that can be implemented programmatica
 
     // Parse and validate the response
     try {
-      const suggestions = JSON.parse(response.content[0].text);
+      const suggestions = JSON.parse('{' + response.content[0].text);
       // Basic validation of structure
       if (!suggestions.recommendations || !Array.isArray(suggestions.recommendations)) {
         throw new Error('Invalid response structure');
@@ -169,6 +192,94 @@ Focus on practical, actionable suggestions that can be implemented programmatica
   }
 }
 
+interface CalendarRecommendation {
+  priority: 'HIGH' | 'MEDIUM' | 'LOW';
+  title: string;
+  recommendation: string;
+  reason: string;
+  calendarAction: {
+    type: 'CREATE' | 'MOVE' | 'DELETE';
+    details: {
+      title: string;
+      description: string;
+      startTime: string;
+      endTime: string;
+    };
+  };
+}
+
+interface SchedulingSuggestions {
+  recommendations: CalendarRecommendation[];
+}
+
+async function executeCalendarActions(
+  auth: OAuth2Client,
+  suggestions: SchedulingSuggestions
+): Promise<void> {
+  const calendar = google.calendar({ version: 'v3', auth });
+  
+  console.log(`Processing ${suggestions.recommendations.length} calendar actions...`);
+
+  for (const recommendation of suggestions.recommendations) {
+    try {
+      const { calendarAction } = recommendation;
+      
+      switch (calendarAction.type) {
+        case 'CREATE': {
+          console.log(`Creating event: ${calendarAction.details.title}`);
+          
+          const event = {
+            summary: calendarAction.details.title,
+            description: `${calendarAction.details.description}`,
+            start: {
+              dateTime: calendarAction.details.startTime,
+              timeZone: 'America/Los_Angeles', // Consider making this configurable
+            },
+            end: {
+              dateTime: calendarAction.details.endTime,
+              timeZone: 'America/Los_Angeles',
+            },
+            // Add optional metadata to track automated creation
+            extendedProperties: {
+              private: {
+                createdBy: 'time-management-system',
+                priority: recommendation.priority,
+                timestamp: new Date().toISOString(),
+              },
+            },
+          };
+
+          await calendar.events.insert({
+            calendarId: 'primary',
+            requestBody: event,
+          });
+          
+          console.log(`✓ Created: ${calendarAction.details.title}`);
+          break;
+        }
+
+        case 'MOVE': {
+          // Implementation for moving events would go here
+          console.log('Move event functionality not implemented yet');
+          break;
+        }
+
+        case 'DELETE': {
+          // Implementation for deleting events would go here
+          console.log('Delete event functionality not implemented yet');
+          break;
+        }
+
+        default:
+          console.warn(`Unknown action type: ${calendarAction.type}`);
+      }
+    } catch (error) {
+      console.error(`Failed to process recommendation: ${recommendation.title}`, error);
+      // Continue processing other recommendations even if one fails
+    }
+  }
+}
+
 async function main() {
   try {
     console.log('Starting time management system...');
@@ -181,7 +292,7 @@ async function main() {
     const auth = await getAuthenticatedClient();
     
     const events = await getCalendarEvents(auth);
-    console.log(`Found ${events?.length || 0} events for the next 7 days`);
+    console.log(`Found ${events?.length || 0} events from the past 30 days to the next 7 days`);
     
     console.log('\nGetting scheduling suggestions...');
     const suggestions = await getSchedulingSuggestions(
@@ -192,17 +303,36 @@ async function main() {
     
     // Pretty print the structured suggestions
     console.log('\nScheduling Suggestions:');
-    suggestions.recommendations.forEach((rec: { type: string; priority: any; recommendation: any; reason: any; action: any; }, index: number) => {
-      console.log(`\n[${index + 1}] ${rec.type.toUpperCase()} (Priority: ${rec.priority})`);
-      console.log(`Recommendation: ${rec.recommendation}`);
-      console.log(`Reason: ${rec.reason}`);
-      console.log('Action:', JSON.stringify(rec.action, null, 2));
+    suggestions.recommendations.forEach((rec: any, index: number) => {
+      console.log(`Recommendation ${index + 1}: ${JSON.stringify(rec, null, 2)}`);
     });
     
+    // Add a confirmation prompt
+    const readline = require('readline').createInterface({
+      input: process.stdin,
+      output: process.stdout,
+    });
+
+    const proceed = await new Promise<boolean>((resolve) => {
+      readline.question('\nDo you want to execute these calendar actions? (y/n) ', (answer: string) => {
+        readline.close();
+        resolve(answer.toLowerCase() === 'y');
+      });
+    });
+
+    if (proceed) {
+      console.log('\nExecuting calendar actions...');
+      await executeCalendarActions(auth, suggestions);
+      console.log('Calendar updates complete!');
+    } else {
+      console.log('Calendar actions cancelled.');
+    }
   } catch (error) {
     console.error('Error:', error);
   }
 }
+
+
 
 if (require.main === module) {
   main().catch(console.error);
