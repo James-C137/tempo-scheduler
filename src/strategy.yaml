@@ -1,0 +1,148 @@
+version: "1.1"
+
+# Core schedule parameters
+schedule_context:
+  timezone: "America/Los_Angeles"
+  work_days: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
+  weekend_days: ["Saturday", "Sunday"]
+
+# Energy patterns throughout the day
+energy_patterns:
+  workday:
+    peak: ["06:00-11:00", "15:00-17:00"]
+    moderate: ["11:00-15:00", "17:00-19:00"]
+    low: ["19:00-22:00"]
+  weekend:
+    peak: ["08:00-12:00"]
+    moderate: ["12:00-17:00"]
+    low: ["17:00-22:00"]
+
+# Time block definitions
+blocks:
+  # Workday blocks
+  workday:
+    morning_routine:
+      start: "06:00"
+      duration: "2.5h"
+      type: "non_negotiable"
+      energy_required: "high"
+      protected: true
+      activities:
+        - health_routine
+        - preparation
+      buffer: "15m"
+
+    work_core:
+      start: "09:00"
+      duration: "8h"
+      type: "work"
+      requires_focus: true
+      rules:
+        - no_meetings_before: "10:00"
+        - deep_work_block: "10:00-12:00"
+        - buffer_between_meetings: "15m"
+        - max_meeting_blocks: 4
+      breaks:
+        lunch: "12:00-13:00"
+        buffer_periods: ["10:45-11:00", "15:00-15:15"]
+
+    evening_recovery:
+      start: "17:30"
+      duration: "4.5h"
+      type: "flexible"
+      energy_required: "low"
+      activities:
+        - recovery
+        - hobby_time
+        - social
+
+  # Weekend blocks
+  weekend:
+    morning_routine:
+      start: "08:00"
+      duration: "2h"
+      type: "non_negotiable"
+      protected: true
+      activities:
+        - health_routine
+
+    free_time:
+      start: "10:00"
+      duration: "8h"
+      type: "flexible"
+      preferences:
+        - hobby_focus
+        - social_activities
+        - recovery
+
+    evening_wind_down:
+      start: "18:00"
+      duration: "4h"
+      type: "recovery"
+      energy_required: "low"
+
+# Scheduling priorities and rules
+priorities:
+  1: "health_routine"
+  2: "deep_work"
+  3: "recovery"
+  4: "social"
+  5: "hobby"
+
+scheduling_rules:
+  protect_energy:
+    - match_activities_to_energy_levels
+    - no_high_energy_tasks_in_low_periods
+    - ensure_recovery_after_intense_blocks
+
+  work_optimization:
+    - protect_deep_work_blocks
+    - limit_meeting_clusters
+    - maintain_buffer_periods
+
+  recovery_management:
+    - ensure_daily_recovery_time
+    - protect_weekend_flexibility
+    - maintain_social_balance
+
+# Exception handling
+exceptions:
+  allowed_overrides:
+    - urgent_work_deadlines
+    - important_social_events
+    - health_appointments
+
+  compensation_rules:
+    - if_deep_work_interrupted: reschedule_within_24h
+    - if_recovery_skipped: double_next_day
+    - if_weekend_compromised: ensure_next_weekend_protected
+
+# Context flags
+context_flags:
+  personal:
+    energy_level: "track_daily"
+    recovery_needs: "monitor"
+    social_battery: "consider"
+
+  work:
+    meeting_load: "track_weekly"
+    deep_work_quality: "protect"
+    context_switching: "minimize"
+
+# Adaptation rules
+adaptation:
+  review_periods:
+    - daily_evening_check
+    - weekly_sunday_review
+    - monthly_strategy_adjustment
+
+  metrics:
+    - energy_alignment
+    - recovery_effectiveness
+    - deep_work_protection
+    - social_balance
+
+  adjustments:
+    - energy_patterns: "recalibrate_weekly"
+    - block_timing: "adjust_monthly"
+    - priorities: "review_quarterly"
